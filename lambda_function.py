@@ -20,8 +20,11 @@ ARTICLE_SELECTOR = "div[data-component='text-block'] p[class*='Paragraph']"
 
 def get_config():
     slack_webhook = os.getenv("SLACK_WEBHOOK_URL")
+    print('SLACK_WEBHOOK_URL 환경변수 로드 시도')
     if not slack_webhook:
+        print('SLACK_WEBHOOK_URL 환경변수 로드 실패')
         raise ValueError("SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다.")
+    print('SLACK_WEBHOOK_URL 환경변수 로드 성공')
     return slack_webhook
 
 def make_session() -> requests.Session:
