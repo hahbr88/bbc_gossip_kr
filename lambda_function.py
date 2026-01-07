@@ -18,6 +18,12 @@ ARTICLE_SELECTOR = "div[data-component='text-block'] p[class*='Paragraph']"
 # if not SLACK_WEBHOOK_URL:
 #     raise RuntimeError("SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다.")
 
+def get_config():
+    slack_webhook = os.getenv("SLACK_WEBHOOK_URL")
+    if not slack_webhook:
+        raise ValueError("SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다.")
+    return slack_webhook
+
 def make_session() -> requests.Session:
     retry = Retry(
         total=3,                 # 총 재시도 횟수(요청 1번 + 재시도 3번 = 최대 4번 시도)
@@ -104,31 +110,33 @@ def is_today_article(published_datetime_str: str | None) -> bool:
 
     return published_kst.date() == today_kst
 
-def send_slack_message(text: str, webhook_url: str):
-    res = SESSION.post(webhook_url, json={"text": text}, timeout=(3, 10))
-    res.raise_for_status()
-
-# def send_slack_message(text: str):
-#     payload = {
-#         "text": text,
-#         "icon_emoji": ":soccer:"
-#     }
-#     res = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
+# def send_slack_message(text: str, webhook_url: str):
+#     res = SESSION.post(webhook_url, json={"text": text}, timeout=(3, 10))
 #     res.raise_for_status()
+
+    # SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+    # if not SLACK_WEBHOOK_URL:
+    #     return {
+    #         "statusCode": 500,
+    #         "body": "SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다."
+    #     }
+
+    # print("SLACK_WEBHOOK_URL 환경변수 로드 성공")
+
+def send_slack_message(text: str):
+    try:
+        SLACK_WEBHOOK_URL = get_config()
+    except ValueError as e:
+        print(e)
+        return {"statusCode": 500, "body": str(e)}
+    payload = { "text": text, }
+    res = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
+    res.raise_for_status()
 
 
 def lambda_handler(event, context):
 
     print("🚀 BBC Gossip Lambda 실행")
-
-    SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-    if not SLACK_WEBHOOK_URL:
-        return {
-            "statusCode": 500,
-            "body": "SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다."
-        }
-
-    print("SLACK_WEBHOOK_URL 환경변수 로드 성공")
 
     url = get_latest_gossip_url()
     if not url:
