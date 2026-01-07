@@ -10,9 +10,9 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 GOSSIP_MAIN_URL = "https://www.bbc.com/sport/football/gossip"
 ARTICLE_SELECTOR = "div[data-component='text-block'] p[class*='Paragraph']"
 
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-if not SLACK_WEBHOOK_URL:
-    raise RuntimeError("SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다.")
+# SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+# if not SLACK_WEBHOOK_URL:
+#     raise RuntimeError("SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다.")
 
 
 def fetch_html(url: str) -> BeautifulSoup:
@@ -86,7 +86,17 @@ def send_slack_message(text: str):
 
 
 def lambda_handler(event, context):
+
     print("🚀 BBC Gossip Lambda 실행")
+
+    SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+    if not SLACK_WEBHOOK_URL:
+        return {
+            "statusCode": 500,
+            "body": "SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다."
+        }
+
+    print("SLACK_WEBHOOK_URL 환경변수 로드 성공 ")
 
     url = get_latest_gossip_url()
     if not url:
