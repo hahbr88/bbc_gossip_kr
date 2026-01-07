@@ -1,10 +1,14 @@
 from deep_translator import GoogleTranslator
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
+
+# from req.session import make_session
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 GOSSIP_MAIN_URL = "https://www.bbc.com/sport/football/gossip"
@@ -14,9 +18,34 @@ ARTICLE_SELECTOR = "div[data-component='text-block'] p[class*='Paragraph']"
 # if not SLACK_WEBHOOK_URL:
 #     raise RuntimeError("SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다.")
 
+def make_session() -> requests.Session:
+    retry = Retry(
+        total=3,                 # 총 재시도 횟수(요청 1번 + 재시도 3번 = 최대 4번 시도)
+        connect=3,
+        read=3,
+        status=3,
+        backoff_factor=0.7,      # 0.7초 기반으로 0.7, 1.4, 2.8... 식 지수 백오프
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET", "POST"),
+        raise_on_status=False,   # 여기선 일단 응답 받아보고 res.raise_for_status로 처리
+    )
+
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+    s = requests.Session()
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
+
+
+# def fetch_html(url: str) -> BeautifulSoup:
+#     res = requests.get(url, headers=HEADERS, timeout=10)
+#     res.raise_for_status()
+#     return BeautifulSoup(res.text, "html.parser")
+
+SESSION = make_session()
 
 def fetch_html(url: str) -> BeautifulSoup:
-    res = requests.get(url, headers=HEADERS, timeout=10)
+    res = SESSION.get(url, headers=HEADERS, timeout=(3, 10))
     res.raise_for_status()
     return BeautifulSoup(res.text, "html.parser")
 
@@ -75,14 +104,17 @@ def is_today_article(published_datetime_str: str | None) -> bool:
 
     return published_kst.date() == today_kst
 
-
-def send_slack_message(text: str):
-    payload = {
-        "text": text,
-        "icon_emoji": ":soccer:"
-    }
-    res = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
+def send_slack_message(text: str, webhook_url: str):
+    res = SESSION.post(webhook_url, json={"text": text}, timeout=(3, 10))
     res.raise_for_status()
+
+# def send_slack_message(text: str):
+#     payload = {
+#         "text": text,
+#         "icon_emoji": ":soccer:"
+#     }
+#     res = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
+#     res.raise_for_status()
 
 
 def lambda_handler(event, context):
@@ -96,7 +128,7 @@ def lambda_handler(event, context):
             "body": "SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다."
         }
 
-    print("SLACK_WEBHOOK_URL 환경변수 로드 성공 ")
+    print("SLACK_WEBHOOK_URL 환경변수 로드 성공")
 
     url = get_latest_gossip_url()
     if not url:
