@@ -2,7 +2,7 @@ name: Deploy Lambda
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   deploy:
@@ -19,15 +19,20 @@ jobs:
 
       - name: Install dependencies
         run: |
+          rm -rf package function.zip
           mkdir package
           pip install -r requirements.txt -t package
-          cp lambda_function.py package/
+          cp lambda_function.py app.py package/
 
       - name: Zip package
         run: |
           cd package
           zip -r ../function.zip .
           cd ..
+
+      - name: Verify zip contents
+        run: |
+          unzip -l function.zip | egrep 'app.py|lambda_function.py'
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -41,3 +46,8 @@ jobs:
           aws lambda update-function-code \
             --function-name bbc-gossip \
             --zip-file fileb://function.zip
+
+      - name: Smoke test invoke
+        run: |
+          aws lambda invoke --function-name bbc-gossip response.json
+          cat response.json
