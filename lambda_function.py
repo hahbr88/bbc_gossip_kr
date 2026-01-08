@@ -7,24 +7,17 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
+import time
 
-# from req.session import make_session
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 GOSSIP_MAIN_URL = "https://www.bbc.com/sport/football/gossip"
 ARTICLE_SELECTOR = "div[data-component='text-block'] p[class*='Paragraph']"
 
-# SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-# if not SLACK_WEBHOOK_URL:
-#     raise RuntimeError("SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다.")
-
 def get_config():
     slack_webhook = os.getenv("SLACK_WEBHOOK_URL")
-    print('SLACK_WEBHOOK_URL 환경변수 로드 시도')
     if not slack_webhook:
-        print('SLACK_WEBHOOK_URL 환경변수 로드 실패')
         raise ValueError("SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다.")
-    print('SLACK_WEBHOOK_URL 환경변수 로드 성공')
     return slack_webhook
 
 def make_session() -> requests.Session:
@@ -47,11 +40,6 @@ def make_session() -> requests.Session:
 
 SESSION = make_session()
 
-# def fetch_html(url: str) -> BeautifulSoup:
-#     res = requests.get(url, headers=HEADERS, timeout=10)
-#     res.raise_for_status()
-#     return BeautifulSoup(res.text, "html.parser")
-
 def fetch_html(url: str) -> BeautifulSoup:
     res = SESSION.get(url, headers=HEADERS, timeout=(3, 10))
     res.raise_for_status()
@@ -72,7 +60,8 @@ def get_latest_gossip_url() -> str | None:
 
 def parse_gossip_article(url: str):
     soup = fetch_html(url)
-    title = soup.find("h1").get_text(strip=True)
+    h1 = soup.find("h1")
+    title = h1.get_text(strip=True) if h1 else "BBC Football Gossip"
 
     time_tag = soup.find("time")
     published_datetime = (
@@ -116,20 +105,23 @@ def is_today_article(published_datetime_str: str | None) -> bool:
 
     return published_kst.date() == today_kst
 
-
 def lambda_handler(event, context):
     print("🚀 BBC Gossip Lambda 실행")
+    try:
+        webhook_url = get_config()
+    except ValueError as e:
+        return {"statusCode": 500, "body": str(e)}
 
-    webhook_url = os.getenv("SLACK_WEBHOOK_URL")
-    if not webhook_url:
-        return {"statusCode": 500, "body": "SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다."}
 
-    # 크롤링/파싱
+    t0 = time.perf_counter()
     url = get_latest_gossip_url()
+    print("t(get_latest):", time.perf_counter() - t0)
     if not url:
         return {"statusCode": 404, "body": "기사 링크 못 찾음"}
 
+    t1 = time.perf_counter()
     title, published_date, soup = parse_gossip_article(url)
+    print("t(parse):", time.perf_counter() - t1)
     if not is_today_article(published_date):
         return {"statusCode": 200, "body": "오늘 기사 아님"}
 
@@ -139,10 +131,17 @@ def lambda_handler(event, context):
 
     refined = "\n\n".join(items)
 
-    # 번역 (여기가 가장 느릴 가능성 큼)
     translator = GoogleTranslator(source="en", target="ko")
-    translated = translator.translate(refined)
+    t2 = time.perf_counter()
+    try:
+        translated = translator.translate(refined)
+    except Exception as e:
+        print("❌ 번역 실패:", e)
+        translated = refined  # 또는 일부만
+    print("t(translate):", time.perf_counter() - t2)
 
+    t3 = time.perf_counter()
     send_slack_message(f"*{title}*\n\n{translated}", webhook_url)
+    print("t(slack):", time.perf_counter() - t3)
 
     return {"statusCode": 200, "body": f"Gossip {len(items)}개 Slack 전송 완료"}
