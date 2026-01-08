@@ -1,3 +1,5 @@
 lambda_package/
 *.zip
 *.json
+.venv
+.env

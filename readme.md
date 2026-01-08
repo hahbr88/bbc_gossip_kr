@@ -4,7 +4,7 @@ BBC Football Gossip 기사를 자동으로 수집하여
 👉 **한국어로 번역 후 Slack으로 전송하는 서버리스 봇**입니다.
 
 AWS Lambda + GitHub Actions 기반으로  
-**서버 관리 없이 자동 배포 / 자동 실행**되도록 구성했습니다.
+**서버 관리 없이 main branch에 push되면 자동 배포/자동 실행**되도록 구성했습니다.
 
 ---
 
@@ -60,8 +60,9 @@ Slack 전송
 ## 📂 프로젝트 구조
 ```
 bbc-gossip-lambda/
-├─ lambda_function.py        # Lambda 메인 함수
-├─ requirements.txt          # Python 의존성
+├─ lambda_function.py        # Lambda 실행 함수
+├─ app.py                    # 메인 로직 함수
+├─ requirements.txt          # Python pip 의존성
 ├─ README.md
 └─ .github/
    └─ workflows/
@@ -85,9 +86,42 @@ bbc-gossip-lambda/
 5. aws lambda update-function-code 실행
 6. Lambda 함수 업데이트 완료
 
-
-## 🧪 수동 실행 (CLI)
+## 로컬환경 테스트
 ```bash
+# 가상환경 생성 및 활성화 (최초 1회)
+
+# macOS
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Windows (PowerShell)
+python -m venv .venv
+.venv\Scripts\activate
+```
+```bash
+# 의존성 설치
+pip install -r requirements.txt
+```
+```bash
+# 환경변수 설정
+SLACK_WEBHOOK_URL="여기에 슬랙웹훅 url"
+DRY_RUN='1' # 로컬 테스트 시 Slack 실제 전송 방지, 1이 아닌 다른 값이면 슬랙 전송됨
+```
+```bash
+# 실행
+python app.py
+```
+
+## 🧪 AWS lambda 수동 실행 (CLI)
+```bash
+# asw IAM access key configure
+aws configure
+   # 'aws configure' 입력 후 차레대로 입력
+   AWS Access Key ID [여기에내IAM액세스키]: 
+   AWS Secret Access Key [여기에내IAM시크릿액세스키]: 
+   Default region name [ap-northeast-2]: #리전
+   Default output format [json]: #reponse json 형식으로 받기
+
 # 실행
 aws lambda invoke \
   --function-name bbc-gossip \
