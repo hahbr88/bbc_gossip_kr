@@ -10,12 +10,15 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
-from dotenv import load_dotenv
 
+# 로컬에서만 .env 로드 (Lambda에서는 자동으로 환경변수 주입됨)
 if os.getenv("AWS_LAMBDA_FUNCTION_NAME") is None:
-    from dotenv import load_dotenv
-    load_dotenv()
-
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ModuleNotFoundError:
+        # python-dotenv가 없어도 로컬에서 export로 실행 가능하게
+        pass
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 GOSSIP_MAIN_URL = "https://www.bbc.com/sport/football/gossip"
@@ -160,6 +163,8 @@ def run() -> dict:
     if not items:
         return {"statusCode": 200, "body": "가십 없음"}
 
+    
+
     # ---- 여기부터 속도 우선 번역 로직 ----
     tails: list[str] = []
     lines: list[str] = []
@@ -168,16 +173,13 @@ def run() -> dict:
         main, tail = split_source_tail(x)
         token = make_token(i)
         tails.append(tail)
-        if len(token) > 0:
-            lines.append(f"• {main} *{token}*")  # 본문 뒤에 토큰
-        else:
-            lines.append(f"• {main}")
+        lines.append(f"• {main} {token}")  # 본문 뒤에 토큰
 
     refined_with_tokens = "\n".join(lines)
 
     translator = GoogleTranslator(source="en", target="ko")
+    
     t2 = time.perf_counter()
-
     try:
         translated = translator.translate(refined_with_tokens)
     except Exception as e:
@@ -189,6 +191,15 @@ def run() -> dict:
             translated = refined_with_tokens
 
     print("t(translate_once):", time.perf_counter() - t2)
+
+    def format_source_tail(tail: str) -> str:
+        if not tail:
+            return "\n"
+        return f"\n*{tail.strip()}*\n"
+    
+
+    for i, tail in enumerate(tails):
+        translated = translated.replace(make_token(i), format_source_tail(tail))
 
     # 번역 결과에 토큰을 출처 꼬리로 되돌리기
     for i, tail in enumerate(tails):
