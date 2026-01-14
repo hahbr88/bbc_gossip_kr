@@ -25,7 +25,6 @@ AWS Lambda + GitHub Actions 기반으로
 
 #### Backend
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![AWS Lambda](https://img.shields.io/badge/AWS%20Lambda-FF9900?style=for-the-badge&logo=awslambda&logoColor=white)
 ![AWS IAM](https://img.shields.io/badge/AWS%20IAM-232F3E?style=for-the-badge&logo=amazonaws&logoColor=white)
 
 
@@ -40,36 +39,49 @@ AWS Lambda + GitHub Actions 기반으로
 ![Requests](https://img.shields.io/badge/Requests-20232A?style=for-the-badge&logo=python&logoColor=white)
 ![deep-translator](https://img.shields.io/badge/deep--translator-0A0A0A?style=for-the-badge&logo=googletranslate&logoColor=white)
 
+### 이제 안쓰는거
+![AWS Lambda](https://img.shields.io/badge/AWS%20Lambda-FF9900?style=for-the-badge&logo=awslambda&logoColor=white)
 ___
 
 
 ## 🏗️ 아키텍처
 
 ```text
-GitHub (push)
-   ↓
-GitHub Actions (CI/CD)
-   ↓
-AWS Lambda
-   ↓
-BBC 사이트 크롤링
-   ↓
-번역
-   ↓
-Slack 전송
+GitHub Actions (cron / 수동 실행)
+        │
+        ▼
+python app.py
+        │
+        ▼
+pipeline.run()
+  ├─ config.get_slack_webhook_url()
+  ├─ bbc_parse.get_latest_gossip_url()
+  ├─ bbc_parse.parse_gossip_article(url)
+  ├─ bbc_parse.extract_gossip_items(soup)
+  ├─ bbc_translate.preprocess_translate(items)
+  ├─ bbc_translate.google_translator(refined_with_tokens, tails)
+  └─ pipeline.send_slack_message(message, webhook_url)
+        │
+        ▼
+Slack Incoming Webhook
 ```
 ---
 
 ## 📂 프로젝트 구조
 ```
-bbc-gossip-lambda/
-├─ lambda_function.py        # Lambda 실행 함수
-├─ app.py                    # 메인 로직 함수
-├─ requirements.txt          # Python pip 의존성
-├─ README.md
+bbc_gossip_kr/
+├─ app.py
+├─ pipeline.py
+├─ config.py
+├─ bbc_http.py
+├─ bbc_parse.py
+├─ bbc_translate.py
+├─ requirements.txt
+├─ Dockerfile
+├─ readme.md
 └─ .github/
    └─ workflows/
-      └─ deploy.yml          # GitHub Actions 배포 설정
+      └─ bbc_gossip.yml
 
 ```
 ---
@@ -81,14 +93,14 @@ bbc-gossip-lambda/
 - Slack Incoming Webhook
 ---
 
-## ⚙️ GitHub Actions 배포 흐름
-1. main 브랜치에 push
-2. GitHub Actions 자동 실행
-3. Python 의존성 설치
-4. Lambda 배포용 zip 생성
-5. 배포 파일 검증 (app.py, lambda_function.py 포함 여부)
-6. aws lambda update-function-code 실행
-7. Lambda 스모크 테스트(1회 invoke)로 정상 동작 여부 확인
+## ~~⚙️ GitHub Actions 배포 흐름~~
+1. ~~main 브랜치에 push~~
+2. ~~GitHub Actions 자동 실행~~
+3. ~~Python 의존성 설치~~
+4. ~~Lambda 배포용 zip 생성~~
+5. ~~배포 파일 검증 (app.py, lambda_function.py 포함 여부)~~
+6. ~~aws lambda update-function-code 실행~~
+7. ~~Lambda 스모크 테스트(1회 invoke)로 정상 동작 여부 확인~~
 
 
 ## 🟡 로컬환경 테스트
@@ -130,25 +142,17 @@ DRY_RUN=1
 # 실행
 python app.py
 ```
-
-## 🧪 AWS lambda 수동 실행 (CLI)
+## 🐳 Docker 환경 구축하기
+1) 이미지 빌드
 ```bash
-# AWS IAM Access Key 설정
-aws configure
-   # 'aws configure' 입력 후 차레대로 입력
-   AWS Access Key ID [여기에내IAM액세스키]: 
-   AWS Secret Access Key [여기에내IAM시크릿액세스키]: 
-   Default region name [ap-northeast-2]: #리전
-   Default output format [json]: #reponse json 형식으로 받기
-
-# 실행
-aws lambda invoke \
-  --function-name bbc-gossip \
-  response.json
-
-# 로그확인
-aws logs tail /aws/lambda/bbc-gossip --follow
+docker build -t bbc-gossip:latest .
 ```
+2) 실행 (env 파일 사용)
+```bash
+docker run --rm --env-file .env bbc-gossip:latest
+```
+
+
 
 ## 🛠️ 문제 해결 & 설계 포인트
 
@@ -157,11 +161,13 @@ aws logs tail /aws/lambda/bbc-gossip --follow
 - 가십 문장 끝의 출처 정보는 번역하지 않고 원문 유지하도록 토큰 기반 처리
 - DRY_RUN 모드를 도입하여 로컬 테스트 시 Slack 실제 전송 방지
 - 배포 직후 스모크 테스트를 추가하여 CI 단계에서 런타임 오류 사전 차단
+- Lambda에서 Github Action으로 교체  
 
 
 ## 🔮 향후 개선 계획
 
-- EventBridge 스케줄을 통한 정기 자동 실행
+- ~~EventBridge 스케줄을 통한 정기 자동 실행~~
+- Github Action으로 특정 시간 코드 실행
 - 번역 엔진 교체 또는 다중 번역기 fallback 구조
 - Slack 메시지 길이 제한 대응(자동 분할 전송)
 
