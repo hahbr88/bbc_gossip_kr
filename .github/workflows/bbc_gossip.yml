@@ -2,9 +2,18 @@ name: BBC Gossip KR Daily
 
 on:
   schedule:
-    # 매일 09:00 KST = 00:00 UTC
-    - cron: "0 0 * * *"
+    # 09:00 KST = 00:00 UTC (정시에 최대한 가깝게: 전후 몇 분 분산)
+    - cron: "59 23 * * *" # 08:59 KST
+    - cron: "0 0 * * *"   # 09:00 KST
+    - cron: "1 0 * * *"   # 09:01 KST
+    - cron: "2 0 * * *"   # 09:02 KST
+    - cron: "3 0 * * *"   # 09:03 KST
   workflow_dispatch:
+
+# 겹쳐서 돌면 하나만 남기고 취소 (중복 실행 방지 1차)
+concurrency:
+  group: bbc-gossip-daily
+  cancel-in-progress: true
 
 jobs:
   run:
@@ -27,10 +36,40 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # ---- 하루 1회 실행 가드 (Cache 마커) ----
+      - name: Compute KST day key
+        id: day
+        shell: bash
+        run: |
+          echo "date=$(TZ=Asia/Seoul date +%F)" >> "$GITHUB_OUTPUT"
+
+      # 캐시가 "hit" 이면 오늘 이미 실행한 것 → 이후 단계 스킵
+      - name: Restore daily run marker (cache)
+        id: marker
+        uses: actions/cache/restore@v4
+        with:
+          path: .run-marker
+          key: bbc-gossip-ran-${{ steps.day.outputs.date }}
+
+      - name: Skip if already ran today (KST)
+        if: steps.marker.outputs.cache-hit == 'true'
+        run: |
+          echo "✅ Already ran today (KST=${{ steps.day.outputs.date }}). Exiting."
+          exit 0
+
+      # 오늘 처음 실행이면 마커 파일 생성
+      - name: Create daily run marker file
+        run: |
+          mkdir -p .run-marker
+          echo "ran_at_utc=$(date -u +%FT%TZ)" > .run-marker/ran.txt
+          echo "ran_at_kst=$(TZ=Asia/Seoul date +%FT%T%z)" >> .run-marker/ran.txt
+          cat .run-marker/ran.txt
+
+      # ---- 실제 실행 ----
       - name: Run (save log)
         run: |
           mkdir -p logs
-          LOG_DATE=$(TZ=Asia/Seoul date +%F)
+          LOG_DATE="${{ steps.day.outputs.date }}"
           python app.py 2>&1 | tee "logs/bbc-gossip-${{ github.run_id }}-${LOG_DATE}.log"
 
       - name: Upload logs
@@ -40,3 +79,12 @@ jobs:
           name: bbc-gossip-logs-${{ github.run_id }}
           path: logs/*.log
           retention-days: 14
+
+      # 작업이 끝나면 "오늘 실행했다" 마커 캐시 저장
+      # (restore 전용 step와 분리해서 save 전용을 써야 충돌이 적음)
+      - name: Save daily run marker (cache)
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: .run-marker
+          key: bbc-gossip-ran-${{ steps.day.outputs.date }}
