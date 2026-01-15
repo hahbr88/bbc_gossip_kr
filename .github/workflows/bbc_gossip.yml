@@ -10,10 +10,16 @@ on:
     - cron: "3 0 * * *"   # 09:03 KST
   workflow_dispatch:
 
-# 겹쳐서 돌면 하나만 남기고 취소 (중복 실행 방지 1차)
+# 겹쳐서 돌면 하나만 유지 (분산 크론에선 true보다 false가 안전)
 concurrency:
   group: bbc-gossip-daily
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+# Issue를 읽고/작성하려면 권한 필요
+permissions:
+  contents: read
+  actions: read
+  issues: write
 
 jobs:
   run:
@@ -23,6 +29,7 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       DRY_RUN: "0"
       TZ: Asia/Seoul
+      GH_TOKEN: ${{ github.token }} # gh CLI 인증용
 
     steps:
       - uses: actions/checkout@v4
@@ -36,37 +43,96 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ---- 하루 1회 실행 가드 (Cache 마커) ----
+      # ---- 날짜 키 계산 ----
       - name: Compute KST day key
         id: day
         shell: bash
         run: |
           echo "date=$(TZ=Asia/Seoul date +%F)" >> "$GITHUB_OUTPUT"
+          echo "kst_now=$(TZ=Asia/Seoul date +%FT%T%z)" >> "$GITHUB_OUTPUT"
+          echo "utc_now=$(date -u +%FT%TZ)" >> "$GITHUB_OUTPUT"
 
-      # 캐시가 "hit" 이면 오늘 이미 실행한 것 → 이후 단계 스킵
+      # ---- 가드 1) Cache 마커 ----
       - name: Restore daily run marker (cache)
-        id: marker
+        id: cache_marker
         uses: actions/cache/restore@v4
         with:
           path: .run-marker
           key: bbc-gossip-ran-${{ steps.day.outputs.date }}
 
-      - name: Skip if already ran today (KST)
-        if: steps.marker.outputs.cache-hit == 'true'
+      - name: Skip if already ran today via cache (KST)
+        if: steps.cache_marker.outputs.cache-hit == 'true'
+        shell: bash
         run: |
-          echo "✅ Already ran today (KST=${{ steps.day.outputs.date }}). Exiting."
+          echo "Already ran today via CACHE. KST=${{ steps.day.outputs.date }} now=${{ steps.day.outputs.kst_now }}"
+          if [ -f ".run-marker/ran.txt" ]; then
+            echo "----- marker (.run-marker/ran.txt) -----"
+            cat .run-marker/ran.txt
+            echo "---------------------------------------"
+          fi
           exit 0
 
-      # 오늘 처음 실행이면 마커 파일 생성
+      # ---- 가드 2) GitHub Issue 마커 ----
+      # 런 마커용 이슈를 찾거나(없으면) 자동 생성
+      - name: Find or create run-marker issue
+        id: marker_issue
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY}"
+          TITLE="BBC Gossip Run Marker"
+          QUERY="repo:${REPO} in:title \"${TITLE}\""
+
+          # search API로 이슈 번호 찾기
+          ISSUE_NUMBER="$(gh api -X GET "search/issues?q=$(python -c 'import urllib.parse,os; print(urllib.parse.quote(os.environ["Q"]))' )" \
+            -F Q="$QUERY" \
+            --jq '.items[0].number // empty' || true)"
+
+          if [ -z "${ISSUE_NUMBER}" ]; then
+            echo "No marker issue found. Creating one..."
+            ISSUE_URL="$(gh issue create --title "${TITLE}" --body "자동 생성된 런 마커 이슈입니다. 매일 실행 기록을 코멘트로 남깁니다." --repo "${REPO}")"
+            ISSUE_NUMBER="$(echo "$ISSUE_URL" | sed -n 's/.*\/issues\/\([0-9]\+\).*/\1/p')"
+          fi
+
+          echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "Using marker issue #${ISSUE_NUMBER}"
+
+      # 오늘(KST) 실행 마커 코멘트가 이미 있으면 스킵
+      - name: Skip if already ran today via issue comment (KST)
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY}"
+          ISSUE="${{ steps.marker_issue.outputs.issue_number }}"
+          DAY="${{ steps.day.outputs.date }}"
+
+          # 최근 코멘트 100개에서 오늘 마커 존재 여부 체크
+          HIT="$(gh api -X GET "repos/${REPO}/issues/${ISSUE}/comments?per_page=100" \
+            --jq "[.[].body] | map(select(test(\"KST=\" + env.DAY))) | length" \
+            -F DAY="$DAY")"
+
+          if [ "${HIT}" != "0" ]; then
+            echo "Already ran today via ISSUE comment. KST=${DAY}"
+            exit 0
+          fi
+
+          echo "No issue marker for today. Continue."
+
+      # 오늘 처음 실행이면 marker 파일도 생성 (cache 저장용)
       - name: Create daily run marker file
+        shell: bash
         run: |
           mkdir -p .run-marker
-          echo "ran_at_utc=$(date -u +%FT%TZ)" > .run-marker/ran.txt
-          echo "ran_at_kst=$(TZ=Asia/Seoul date +%FT%T%z)" >> .run-marker/ran.txt
+          echo "ran_at_utc=${{ steps.day.outputs.utc_now }}" > .run-marker/ran.txt
+          echo "ran_at_kst=${{ steps.day.outputs.kst_now }}" >> .run-marker/ran.txt
+          echo "run_id=${{ github.run_id }}" >> .run-marker/ran.txt
+          echo "attempt=${{ github.run_attempt }}" >> .run-marker/ran.txt
+          echo "ref=${{ github.ref }}" >> .run-marker/ran.txt
           cat .run-marker/ran.txt
 
       # ---- 실제 실행 ----
       - name: Run (save log)
+        shell: bash
         run: |
           mkdir -p logs
           LOG_DATE="${{ steps.day.outputs.date }}"
@@ -80,11 +146,67 @@ jobs:
           path: logs/*.log
           retention-days: 14
 
-      # 작업이 끝나면 "오늘 실행했다" 마커 캐시 저장
-      # (restore 전용 step와 분리해서 save 전용을 써야 충돌이 적음)
-      - name: Save daily run marker (cache)
+      - name: Upload run marker (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bbc-gossip-run-marker-${{ github.run_id }}
+          path: .run-marker/ran.txt
+          retention-days: 14
+
+      # 성공하면: Issue 코멘트로 오늘 실행 마커 남김 (이게 “최종 보증 장치”)
+      - name: Write success marker to issue
         if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY}"
+          ISSUE="${{ steps.marker_issue.outputs.issue_number }}"
+          DAY="${{ steps.day.outputs.date }}"
+
+          BODY=$(cat <<EOF
+          ### Daily run success
+          - KST=${DAY}
+          - ran_at_kst=${{ steps.day.outputs.kst_now }}
+          - ran_at_utc=${{ steps.day.outputs.utc_now }}
+          - run_id=${{ github.run_id }}
+          - attempt=${{ github.run_attempt }}
+          EOF
+          )
+
+          gh api -X POST "repos/${REPO}/issues/${ISSUE}/comments" -f body="$BODY"
+          echo "Wrote issue marker on #${ISSUE} for KST=${DAY}"
+
+      # ---- cache save: 있으면 좋고 없어도 issue 마커가 최종 안전장치 ----
+      - name: Save daily run marker (cache) - attempt 1
+        id: save1
+        if: success()
+        continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: .run-marker
           key: bbc-gossip-ran-${{ steps.day.outputs.date }}
+
+      - name: Save daily run marker (cache) - attempt 2
+        id: save2
+        if: success() && steps.save1.outcome != 'success'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .run-marker
+          key: bbc-gossip-ran-${{ steps.day.outputs.date }}
+
+      - name: Save daily run marker (cache) - attempt 3
+        id: save3
+        if: success() && steps.save2.outcome != 'success'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .run-marker
+          key: bbc-gossip-ran-${{ steps.day.outputs.date }}
+
+      - name: Warn if cache save failed (issue marker already written)
+        if: success() && steps.save3.outcome != 'success'
+        shell: bash
+        run: |
+          echo "::warning title=Cache save failed::Cache save failed after 3 attempts. Issue marker exists, so next cron should still skip. KST=${{ steps.day.outputs.date }}"
