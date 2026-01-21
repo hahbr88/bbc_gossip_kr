@@ -76,6 +76,7 @@ jobs:
             cat .run-marker/ran.txt
             echo "---------------------------------------"
           fi
+          echo "should_run=false"
           echo "should_run=false" >> "$GITHUB_OUTPUT"
         id: guard_cache
 
