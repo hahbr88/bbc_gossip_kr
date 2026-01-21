@@ -83,11 +83,11 @@ jobs:
           TITLE="BBC Gossip Run Marker"
           QUERY="repo:${REPO} in:title \"${TITLE}\""
 
-          # Search API는 권한 제한이 있어 404가 날 수 있으니, issues 목록에서 제목으로 찾기
-          if ! ISSUE_NUMBER="$(gh api "repos/${REPO}/issues" -f state=all -f per_page=100 \
-            --jq '[.[] | select(.title == env.TITLE)] | .[0].number // empty' \
-            -F TITLE="$TITLE" 2>gh_api_err.txt)"; then
-            echo "Error: failed to list issues via GitHub API."
+          # Use gh issue list to avoid REST search API permission issues
+          if ! ISSUE_NUMBER="$(gh issue list --repo "${REPO}" --state all \
+            --search "\"${TITLE}\" in:title" --json number \
+            --jq '.[0].number // empty' 2>gh_api_err.txt)"; then
+            echo "Error: failed to list issues via GitHub CLI."
             cat gh_api_err.txt >&2
             exit 1
           fi
