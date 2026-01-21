@@ -1,10 +1,10 @@
 # ⚽ BBC Football Gossip Translator KR (AWS Lambda)
 
 BBC Football Gossip 기사를 자동으로 수집하여  
-👉 **한국어로 번역 후 Slack으로 전송하는 서버리스 봇**입니다.
+👉 **한국어로 번역 후 Slack으로 전송하는 봇**입니다.
 
-AWS Lambda + GitHub Actions 기반으로  
-**서버 관리 없이 main branch에 push되면 자동 배포**되도록 구성했습니다.
+GitHub Actions 기반으로  
+**매일 KST 기준 스케줄/수동 실행**되도록 구성했습니다.
 
 
 ---
@@ -15,7 +15,7 @@ AWS Lambda + GitHub Actions 기반으로
 - 기사 본문 가십 문단 추출 및 정제
 - 영어 → 한국어 자동 번역
 - 가십 문장 끝의 출처 정보 (Mirror, Fabrizio Romano 등)는 원문 그대로 유지
-- 번역 요청을 단일 배치 처리하여 Lambda 실행 시간 최적화
+- 출처 정보에 원문 기사 링크 삽입
 - Slack Webhook을 통해 메시지 전송
 - AWS Lambda 기반 서버리스 실행
 - GitHub Actions를 통한 CI/CD 자동 배포
@@ -25,7 +25,6 @@ AWS Lambda + GitHub Actions 기반으로
 
 #### Backend
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![AWS IAM](https://img.shields.io/badge/AWS%20IAM-232F3E?style=for-the-badge&logo=amazonaws&logoColor=white)
 
 
 #### CI/CD
@@ -39,10 +38,7 @@ AWS Lambda + GitHub Actions 기반으로
 ![Requests](https://img.shields.io/badge/Requests-20232A?style=for-the-badge&logo=python&logoColor=white)
 ![deep-translator](https://img.shields.io/badge/deep--translator-0A0A0A?style=for-the-badge&logo=googletranslate&logoColor=white)
 
-### 이제 안쓰는거
-![AWS Lambda](https://img.shields.io/badge/AWS%20Lambda-FF9900?style=for-the-badge&logo=awslambda&logoColor=white)
 ___
-
 
 ## 🏗️ 아키텍처
 
@@ -87,20 +83,15 @@ bbc_gossip_kr/
 ---
 
 ## 🚀 실행 환경
-- Python 3.11
-- AWS Lambda (python3.11 runtime)
+- Python 3.12 (GitHub Actions)
 - GitHub Actions
 - Slack Incoming Webhook
 ---
 
-## ~~⚙️ GitHub Actions 배포 흐름~~
-1. ~~main 브랜치에 push~~
-2. ~~GitHub Actions 자동 실행~~
-3. ~~Python 의존성 설치~~
-4. ~~Lambda 배포용 zip 생성~~
-5. ~~배포 파일 검증 (app.py, lambda_function.py 포함 여부)~~
-6. ~~aws lambda update-function-code 실행~~
-7. ~~Lambda 스모크 테스트(1회 invoke)로 정상 동작 여부 확인~~
+## 🟢 GitHub Actions 실행 방식
+- 매일 KST 기준으로 스케줄 실행
+- 동일 날짜(KST)에는 캐시/이슈 마커로 중복 실행 방지
+- 수동 실행 시 `force_run=true`로 마커를 무시하고 강제 실행 가능
 
 
 ## 🟡 로컬환경 테스트
@@ -156,20 +147,30 @@ docker run --rm --env-file .env bbc-gossip:latest
 
 ## 🛠️ 문제 해결 & 설계 포인트
 
-- Lambda 배포 시 `app.py` 누락으로 발생한 Import 에러를 GitHub Actions 빌드 구조 개선으로 해결
 - 번역 API 다중 호출로 인한 지연 문제를 단일 배치 번역 구조로 리팩터링
 - 가십 문장 끝의 출처 정보는 번역하지 않고 원문 유지하도록 토큰 기반 처리
 - DRY_RUN 모드를 도입하여 로컬 테스트 시 Slack 실제 전송 방지
-- 배포 직후 스모크 테스트를 추가하여 CI 단계에서 런타임 오류 사전 차단
-- Lambda에서 Github Action으로 교체  
+- Github Action으로 특정 시간 코드 실행
 
 
 ## 🔮 향후 개선 계획
 
 - ~~EventBridge 스케줄을 통한 정기 자동 실행~~
-- Github Action으로 특정 시간 코드 실행
 - 번역 엔진 교체 또는 다중 번역기 fallback 구조
 - Slack 메시지 길이 제한 대응(자동 분할 전송)
+
+## 📚 과거 구성 (히스토리)
+- AWS Lambda + GitHub Actions 기반 자동 배포 파이프라인
+  - GitHub Actions 배포 흐름
+    1. main 브랜치에 push
+    2. GitHub Actions 자동 실행
+    3. Python 의존성 설치
+    4. Lambda 배포용 zip 생성
+    5. 배포 파일 검증 (app.py, lambda_function.py 포함 여부)
+    6. aws lambda update-function-code 실행
+    7. Lambda 스모크 테스트(1회 invoke)로 정상 동작 여부 확인
+
+- ![AWS Lambda](https://img.shields.io/badge/AWS%20Lambda-FF9900?style=for-the-badge&logo=awslambda&logoColor=white) ![AWS IAM](https://img.shields.io/badge/AWS%20IAM-232F3E?style=for-the-badge&logo=amazonaws&logoColor=white)
 
 
 ## 📄 License
