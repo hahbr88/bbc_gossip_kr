@@ -85,13 +85,28 @@ jobs:
 
           # search API로 이슈 번호 찾기
           # Use -f to let gh encode the query param properly
-          ISSUE_NUMBER="$(gh api search/issues -f q="$QUERY" \
-            --jq '.items[0].number // empty' || true)"
+          if ! ISSUE_NUMBER="$(gh api search/issues -f q="$QUERY" \
+            --jq '.items[0].number // empty' 2>gh_api_err.txt)"; then
+            echo "Error: failed to query issues via GitHub API."
+            cat gh_api_err.txt >&2
+            exit 1
+          fi
+          rm -f gh_api_err.txt
 
           if [ -z "${ISSUE_NUMBER}" ]; then
             echo "No marker issue found. Creating one..."
-            ISSUE_URL="$(gh issue create --title "${TITLE}" --body "자동 생성된 런 마커 이슈입니다. 매일 실행 기록을 코멘트로 남깁니다." --repo "${REPO}")"
+            if ! ISSUE_URL="$(gh issue create --title "${TITLE}" --body "자동 생성된 런 마커 이슈입니다. 매일 실행 기록을 코멘트로 남깁니다." --repo "${REPO}" 2>gh_issue_err.txt)"; then
+              echo "Error: failed to create marker issue."
+              cat gh_issue_err.txt >&2
+              exit 1
+            fi
+            rm -f gh_issue_err.txt
             ISSUE_NUMBER="$(echo "$ISSUE_URL" | sed -n 's/.*\/issues\/\([0-9]\+\).*/\1/p')"
+          fi
+
+          if [ -z "${ISSUE_NUMBER}" ] || ! echo "${ISSUE_NUMBER}" | grep -Eq '^[0-9]+$'; then
+            echo "Error: invalid issue number: ${ISSUE_NUMBER}"
+            exit 1
           fi
 
           echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
