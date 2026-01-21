@@ -9,6 +9,11 @@ on:
     - cron: "2 0 * * *"   # 09:02 KST
     - cron: "3 0 * * *"   # 09:03 KST
   workflow_dispatch:
+    inputs:
+      force_run:
+        description: "Ignore KST markers and run anyway"
+        required: false
+        default: "false"
 
 # 겹쳐서 돌면 하나만 유지 (분산 크론에선 true보다 false가 안전)
 concurrency:
@@ -65,9 +70,13 @@ jobs:
         shell: bash
         run: |
           echo "should_run=true" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event.inputs.force_run }}" = "true" ]; then
+            echo "force_run=true"
+            echo "force_run=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Guard via cache (KST)
-        if: steps.cache_marker.outputs.cache-hit == 'true'
+        if: steps.cache_marker.outputs.cache-hit == 'true' && steps.guard.outputs.force_run != 'true'
         shell: bash
         run: |
           echo "Already ran today via CACHE. KST=${{ steps.day.outputs.date }} now=${{ steps.day.outputs.kst_now }}"
@@ -133,7 +142,7 @@ jobs:
 
       # 오늘(KST) 실행 마커 코멘트가 이미 있으면 스킵
       - name: Guard via issue comment (KST)
-        if: steps.guard_cache.outputs.should_run != 'false'
+        if: steps.guard_cache.outputs.should_run != 'false' && steps.guard.outputs.force_run != 'true'
         shell: bash
         run: |
           set -euo pipefail
