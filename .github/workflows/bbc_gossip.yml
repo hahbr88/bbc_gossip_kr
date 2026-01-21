@@ -84,10 +84,19 @@ jobs:
           QUERY="repo:${REPO} in:title \"${TITLE}\""
 
           # Use gh issue list to avoid REST search API permission issues
-          if ! ISSUE_NUMBER="$(gh issue list --repo "${REPO}" --state all \
-            --search "\"${TITLE}\" in:title" --json number \
-            --jq '.[0].number // empty' 2>gh_api_err.txt)"; then
-            echo "Error: failed to list issues via GitHub CLI."
+          ISSUE_NUMBER=""
+          for attempt in 1 2 3; do
+            if ISSUE_NUMBER="$(gh issue list --repo "${REPO}" --state all \
+              --search "\"${TITLE}\" in:title" --json number \
+              --jq '.[0].number // empty' 2>gh_api_err.txt)"; then
+              break
+            fi
+            echo "Warning: issue list failed (attempt ${attempt}/3). Retrying in 5s..." >&2
+            cat gh_api_err.txt >&2
+            sleep 5
+          done
+          if [ -z "${ISSUE_NUMBER}" ] && [ -s gh_api_err.txt ]; then
+            echo "Error: failed to list issues via GitHub CLI after 3 attempts."
             cat gh_api_err.txt >&2
             exit 1
           fi
@@ -97,6 +106,7 @@ jobs:
             echo "No marker issue found. Creating one..."
             if ! ISSUE_URL="$(gh issue create --title "${TITLE}" --body "자동 생성된 런 마커 이슈입니다. 매일 실행 기록을 코멘트로 남깁니다." --repo "${REPO}" 2>gh_issue_err.txt)"; then
               echo "Error: failed to create marker issue."
+              echo "Check: repository access, Issues enabled, and token permissions (issues: write)."
               cat gh_issue_err.txt >&2
               exit 1
             fi
