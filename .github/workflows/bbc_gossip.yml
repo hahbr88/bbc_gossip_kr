@@ -84,8 +84,8 @@ jobs:
           QUERY="repo:${REPO} in:title \"${TITLE}\""
 
           # search API로 이슈 번호 찾기
-          ISSUE_NUMBER="$(gh api -X GET "search/issues?q=$(python -c 'import urllib.parse,os; print(urllib.parse.quote(os.environ["Q"]))' )" \
-            -F Q="$QUERY" \
+          # Use -f to let gh encode the query param properly
+          ISSUE_NUMBER="$(gh api search/issues -f q="$QUERY" \
             --jq '.items[0].number // empty' || true)"
 
           if [ -z "${ISSUE_NUMBER}" ]; then
