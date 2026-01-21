@@ -60,7 +60,13 @@ jobs:
           path: .run-marker
           key: bbc-gossip-ran-${{ steps.day.outputs.date }}
 
-      - name: Skip if already ran today via cache (KST)
+      - name: Init run guard
+        id: guard
+        shell: bash
+        run: |
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Guard via cache (KST)
         if: steps.cache_marker.outputs.cache-hit == 'true'
         shell: bash
         run: |
@@ -70,12 +76,14 @@ jobs:
             cat .run-marker/ran.txt
             echo "---------------------------------------"
           fi
-          exit 0
+          echo "should_run=false" >> "$GITHUB_OUTPUT"
+        id: guard_cache
 
       # ---- 가드 2) GitHub Issue 마커 ----
       # 런 마커용 이슈를 찾거나(없으면) 자동 생성
       - name: Find or create run-marker issue
         id: marker_issue
+        if: steps.guard_cache.outputs.should_run != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -123,7 +131,8 @@ jobs:
           echo "Using marker issue #${ISSUE_NUMBER}"
 
       # 오늘(KST) 실행 마커 코멘트가 이미 있으면 스킵
-      - name: Skip if already ran today via issue comment (KST)
+      - name: Guard via issue comment (KST)
+        if: steps.guard_cache.outputs.should_run != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -138,13 +147,15 @@ jobs:
 
           if [ "${HIT}" != "0" ]; then
             echo "Already ran today via ISSUE comment. KST=${DAY}"
-            exit 0
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
           fi
 
           echo "No issue marker for today. Continue."
+        id: guard_issue
 
       # 오늘 처음 실행이면 marker 파일도 생성 (cache 저장용)
       - name: Create daily run marker file
+        if: steps.guard_cache.outputs.should_run != 'false' && steps.guard_issue.outputs.should_run != 'false'
         shell: bash
         run: |
           mkdir -p .run-marker
@@ -157,6 +168,7 @@ jobs:
 
       # ---- 실제 실행 ----
       - name: Run (save log)
+        if: steps.guard_cache.outputs.should_run != 'false' && steps.guard_issue.outputs.should_run != 'false'
         shell: bash
         run: |
           mkdir -p logs
@@ -164,7 +176,7 @@ jobs:
           python app.py 2>&1 | tee "logs/bbc-gossip-${{ github.run_id }}-${LOG_DATE}.log"
 
       - name: Upload logs
-        if: always()
+        if: steps.guard_cache.outputs.should_run != 'false' && steps.guard_issue.outputs.should_run != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: bbc-gossip-logs-${{ github.run_id }}
@@ -172,7 +184,7 @@ jobs:
           retention-days: 14
 
       - name: Upload run marker (always)
-        if: always()
+        if: steps.guard_cache.outputs.should_run != 'false' && steps.guard_issue.outputs.should_run != 'false'
         uses: actions/upload-artifact@v4
         with:
           name: bbc-gossip-run-marker-${{ github.run_id }}
@@ -181,7 +193,7 @@ jobs:
 
       # 성공하면: Issue 코멘트로 오늘 실행 마커 남김 (이게 “최종 보증 장치”)
       - name: Write success marker to issue
-        if: success()
+        if: success() && steps.guard_cache.outputs.should_run != 'false' && steps.guard_issue.outputs.should_run != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -205,7 +217,7 @@ jobs:
       # ---- cache save: 있으면 좋고 없어도 issue 마커가 최종 안전장치 ----
       - name: Save daily run marker (cache) - attempt 1
         id: save1
-        if: success()
+        if: success() && steps.guard_cache.outputs.should_run != 'false' && steps.guard_issue.outputs.should_run != 'false'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
@@ -214,7 +226,7 @@ jobs:
 
       - name: Save daily run marker (cache) - attempt 2
         id: save2
-        if: success() && steps.save1.outcome != 'success'
+        if: success() && steps.save1.outcome != 'success' && steps.guard_cache.outputs.should_run != 'false' && steps.guard_issue.outputs.should_run != 'false'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
@@ -223,7 +235,7 @@ jobs:
 
       - name: Save daily run marker (cache) - attempt 3
         id: save3
-        if: success() && steps.save2.outcome != 'success'
+        if: success() && steps.save2.outcome != 'success' && steps.guard_cache.outputs.should_run != 'false' && steps.guard_issue.outputs.should_run != 'false'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
@@ -231,7 +243,7 @@ jobs:
           key: bbc-gossip-ran-${{ steps.day.outputs.date }}
 
       - name: Warn if cache save failed (issue marker already written)
-        if: success() && steps.save3.outcome != 'success'
+        if: success() && steps.save3.outcome != 'success' && steps.guard_cache.outputs.should_run != 'false' && steps.guard_issue.outputs.should_run != 'false'
         shell: bash
         run: |
           echo "::warning title=Cache save failed::Cache save failed after 3 attempts. Issue marker exists, so next cron should still skip. KST=${{ steps.day.outputs.date }}"
