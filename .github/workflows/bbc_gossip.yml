@@ -151,13 +151,16 @@ jobs:
           DAY="${{ steps.day.outputs.date }}"
 
           # 최근 코멘트 100개에서 오늘 마커 존재 여부 체크
+          # NOTE: 
+          # jq env.DAY was empty (not exported), so test("KST=") matched all comments. jq env.DAY가 비어 있어 test("KST=")가 모든 코멘트를 매칭했었음.
+          # Inject DAY directly to ensure only today's KST marker matches. DAY를 직접 삽입해 오늘 KST 마커만 매칭되도록 수정.
           HIT="$(gh api -X GET "repos/${REPO}/issues/${ISSUE}/comments?per_page=100" \
-            --jq "[.[].body] | map(select(test(\"KST=\" + env.DAY))) | length" \
-            -F DAY="$DAY")"
+            --jq "[.[].body] | map(select(test(\"KST=${DAY}\"))) | length")"
 
           if [ "${HIT}" != "0" ]; then
             echo "Already ran today via ISSUE comment. KST=${DAY}"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           echo "No issue marker for today. Continue."

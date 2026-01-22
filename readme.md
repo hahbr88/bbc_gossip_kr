@@ -1,5 +1,7 @@
 # ⚽ BBC Football Gossip Translator KR (AWS Lambda)
 
+[![BBC Gossip KR Daily](https://github.com/hahbr88/bbc_gossip_kr/actions/workflows/bbc_gossip.yml/badge.svg)](https://github.com/hahbr88/bbc_gossip_kr/actions/workflows/bbc_gossip.yml)
+
 BBC Football Gossip 기사를 자동으로 수집하여  
 👉 **한국어로 번역 후 Slack으로 전송하는 봇**입니다.
 
@@ -151,6 +153,12 @@ docker run --rm --env-file .env bbc-gossip:latest
 - 가십 문장 끝의 출처 정보는 번역하지 않고 원문 유지하도록 토큰 기반 처리
 - DRY_RUN 모드를 도입하여 로컬 테스트 시 Slack 실제 전송 방지
 - Github Action으로 특정 시간 코드 실행
+
+## 🧯 트러블슈팅
+- 이슈 마커가 오늘 실행된 것으로 잘못 인식되는 문제
+  - 원인: `jq`에서 `env.DAY`를 사용했지만 해당 환경 변수가 설정되지 않아 `test("KST=")`로 동작
+  - 결과: 과거 코멘트도 매칭되어 매일 이미 실행된 것으로 판단
+  - 해결: 쉘 변수 `DAY`를 문자열에 직접 삽입해 `test("KST=YYYY-MM-DD")`로 정확히 매칭
 
 
 ## 🔮 향후 개선 계획
