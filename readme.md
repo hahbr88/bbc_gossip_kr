@@ -1,4 +1,4 @@
-# ⚽ BBC Football Gossip Translator KR (AWS Lambda)
+# ⚽ BBC Football Gossip Translator KR
 
 [![BBC Gossip KR Daily](https://github.com/hahbr88/bbc_gossip_kr/actions/workflows/bbc_gossip.yml/badge.svg)](https://github.com/hahbr88/bbc_gossip_kr/actions/workflows/bbc_gossip.yml)
 
