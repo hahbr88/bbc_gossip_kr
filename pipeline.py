@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from bbc_http import SESSION, fetch_text
 from bbc_parse import (
+    MIN_EXPECTED_GOSSIP_ITEMS,
     to_soup,
     get_latest_gossip_url,
     parse_gossip_article,
@@ -62,6 +63,12 @@ def run() -> dict:
     if not items:
         print("parse_diagnostics:", get_parse_diagnostics(soup))
         return {"statusCode": 200, "body": "가십 없음"}
+    if len(items) < MIN_EXPECTED_GOSSIP_ITEMS:
+        print(
+            f"parse_warning: expected at least {MIN_EXPECTED_GOSSIP_ITEMS} gossip items, "
+            f"got {len(items)}"
+        )
+        print("parse_diagnostics:", get_parse_diagnostics(soup))
 
     refined_with_tokens, tails = preprocess_translate(items)
 

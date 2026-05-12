@@ -7,6 +7,15 @@ from bs4.element import Tag
 from config import ARTICLE_SELECTORS
 
 BBC_BASE = "https://www.bbc.com"
+MIN_GOSSIP_TEXT_LENGTH = 50
+MIN_EXPECTED_GOSSIP_ITEMS = 3
+
+SKIP_TEXT_PATTERNS = (
+    "back page",
+    "copyright ",
+    "the bbc is not responsible",
+    "read about our approach to external linking",
+)
 
 def to_soup(html: str) -> BeautifulSoup:
     return BeautifulSoup(html, "html.parser")
@@ -102,6 +111,57 @@ def clean_gossip_text(text: str) -> str:
     text = text.replace("Â£", "£")
     return text.strip()
 
+
+def _normalize_href(href: str) -> str:
+    href = href.strip()
+    if href.startswith("/"):
+        return BBC_BASE + href
+    return href
+
+
+def _is_bbc_link(href: str) -> bool:
+    return href.startswith("https://www.bbc.com/") or href.startswith("https://www.bbc.co.uk/")
+
+
+def _is_obvious_non_gossip_text(text: str) -> bool:
+    lowered = text.lower()
+    return any(pattern in lowered for pattern in SKIP_TEXT_PATTERNS)
+
+
+def extract_source_link(p: Tag, source: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    href: Optional[str] = None
+    a_tags = p.find_all("a", href=True)
+    if not a_tags:
+        return source, href
+
+    last_a = a_tags[-1]
+    href = _normalize_href(last_a["href"])
+
+    if source is None and not _is_bbc_link(href):
+        label = clean_gossip_text(last_a.get_text(" ", strip=True))
+        label = re.sub(r"\s*,?\s*external\b", "", label, flags=re.IGNORECASE).strip()
+        label = label.strip("() ")
+        if _looks_like_source_token(label):
+            source = label
+
+    return source, href
+
+
+def parse_gossip_paragraph(p: Tag) -> Optional[tuple[str, Optional[str], Optional[str]]]:
+    raw = clean_gossip_text(p.get_text(" ", strip=True))
+
+    if len(raw) < MIN_GOSSIP_TEXT_LENGTH or _is_obvious_non_gossip_text(raw):
+        return None
+
+    body, source = split_body_and_source(raw)
+    source, href = extract_source_link(p, source)
+
+    if not source:
+        return None
+
+    return body, source, href
+
+
 def extract_gossip_items(soup: BeautifulSoup) -> list[tuple[str, Optional[str], Optional[str]]]:
     """
     반환: [(본문, 출처명, 출처링크), ...]
@@ -112,40 +172,9 @@ def extract_gossip_items(soup: BeautifulSoup) -> list[tuple[str, Optional[str], 
     _, paragraphs = select_article_paragraphs(soup)
 
     for p in paragraphs:
-        raw = p.get_text(" ", strip=True)
-        raw = clean_gossip_text(raw)
-
-        if len(raw) < 50:
-            continue
-
-        # 1) 텍스트 기준으로 본문/출처 분리 (정교한 버전 사용)
-        body, source = split_body_and_source(raw)
-
-        # 2) 가능하면 출처 링크도 추출 (문단 내 마지막 링크를 후보로)
-        href: Optional[str] = None
-        a_tags = p.find_all("a", href=True)
-        if a_tags:
-            last_a = a_tags[-1]
-            href = last_a["href"].strip()
-
-            # BBC 내부 상대경로면 절대경로로
-            if href.startswith("/"):
-                href = "https://www.bbc.com" + href
-
-            # 괄호 출처가 없는데, 마지막 링크 텍스트가 출처처럼 보이면 보정
-            if source is None:
-                label = last_a.get_text(" ", strip=True)
-                is_external_link = not (
-                    href.startswith("https://www.bbc.com/")
-                    or href.startswith("https://www.bbc.co.uk/")
-                )
-                if is_external_link and _looks_like_source_token(label):
-                    source = label
-
-        if source is None:
-            continue
-
-        items.append((body, source, href))
+        item = parse_gossip_paragraph(p)
+        if item:
+            items.append(item)
 
     return items
 
