@@ -28,4 +28,6 @@ SESSION = make_session()
 def fetch_text(url: str, headers: dict[str, str], timeout: tuple[int, int] = (3, 10)) -> str:
     res = SESSION.get(url, headers=headers, timeout=timeout)
     res.raise_for_status()
+    if not res.encoding or res.encoding.lower() == "iso-8859-1":
+        res.encoding = res.apparent_encoding or "utf-8"
     return res.text

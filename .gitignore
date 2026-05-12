@@ -3,3 +3,5 @@ lambda_package/
 *.json
 .venv
 .env
+__pycache__/
+*.pyc

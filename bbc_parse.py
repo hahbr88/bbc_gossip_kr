@@ -2,7 +2,9 @@ import re
 from bs4 import BeautifulSoup
 
 from typing import Optional, Tuple
-from config import ARTICLE_SELECTOR, GOSSIP_MAIN_URL
+from bs4.element import Tag
+
+from config import ARTICLE_SELECTORS
 
 BBC_BASE = "https://www.bbc.com"
 
@@ -28,6 +30,14 @@ def parse_gossip_article(article_soup: BeautifulSoup) -> tuple[str, Optional[str
     published_datetime = time_tag.get("datetime") if time_tag else None
 
     return title, published_datetime, article_soup
+
+
+def select_article_paragraphs(soup: BeautifulSoup) -> tuple[str, list[Tag]]:
+    for selector in ARTICLE_SELECTORS:
+        paragraphs = soup.select(selector)
+        if paragraphs:
+            return selector, paragraphs
+    return ARTICLE_SELECTORS[-1], []
 
 # 마지막에 붙는 "(talkSPORT)" 같은 출처 토큰 분리
 # - 괄호 안이 너무 길면 본문 괄호일 가능성이 커서 제외
@@ -99,8 +109,9 @@ def extract_gossip_items(soup: BeautifulSoup) -> list[tuple[str, Optional[str], 
     - 출처링크: 문단의 마지막 a[href] (있으면)
     """
     items: list[tuple[str, Optional[str], Optional[str]]] = []
+    _, paragraphs = select_article_paragraphs(soup)
 
-    for p in soup.select(ARTICLE_SELECTOR):
+    for p in paragraphs:
         raw = p.get_text(" ", strip=True)
         raw = clean_gossip_text(raw)
 
@@ -124,9 +135,35 @@ def extract_gossip_items(soup: BeautifulSoup) -> list[tuple[str, Optional[str], 
             # 괄호 출처가 없는데, 마지막 링크 텍스트가 출처처럼 보이면 보정
             if source is None:
                 label = last_a.get_text(" ", strip=True)
-                if _looks_like_source_token(label):
+                is_external_link = not (
+                    href.startswith("https://www.bbc.com/")
+                    or href.startswith("https://www.bbc.co.uk/")
+                )
+                if is_external_link and _looks_like_source_token(label):
                     source = label
+
+        if source is None:
+            continue
 
         items.append((body, source, href))
 
     return items
+
+
+def get_parse_diagnostics(soup: BeautifulSoup) -> dict:
+    selected_selector, paragraphs = select_article_paragraphs(soup)
+    selector_counts = {
+        selector: len(soup.select(selector))
+        for selector in ARTICLE_SELECTORS
+    }
+    samples = [
+        clean_gossip_text(p.get_text(" ", strip=True))[:180]
+        for p in paragraphs[:5]
+    ]
+
+    return {
+        "selected_selector": selected_selector,
+        "selector_counts": selector_counts,
+        "paragraph_count": len(paragraphs),
+        "sample_paragraphs": samples,
+    }

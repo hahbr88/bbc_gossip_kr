@@ -11,6 +11,7 @@ from bbc_parse import (
     get_latest_gossip_url,
     parse_gossip_article,
     extract_gossip_items,
+    get_parse_diagnostics,
 )
 from bbc_translate import google_translator, preprocess_translate
 from config import GOSSIP_MAIN_URL, HEADERS, DRY_RUN, get_slack_webhook_url
@@ -59,6 +60,7 @@ def run() -> dict:
 
     items = extract_gossip_items(soup)
     if not items:
+        print("parse_diagnostics:", get_parse_diagnostics(soup))
         return {"statusCode": 200, "body": "가십 없음"}
 
     refined_with_tokens, tails = preprocess_translate(items)
