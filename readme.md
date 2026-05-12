@@ -8,7 +8,6 @@ BBC Football Gossip 기사를 자동으로 수집하여
 GitHub Actions 기반으로  
 **매일 KST 기준 스케줄/수동 실행**되도록 구성했습니다.
 
-
 ---
 
 ## 📌 주요 기능
@@ -18,15 +17,18 @@ GitHub Actions 기반으로
 - 영어 → 한국어 자동 번역
 - 가십 문장 끝의 출처 정보 (Mirror, Fabrizio Romano 등)는 원문 그대로 유지
 - 출처 정보에 원문 기사 링크 삽입
+- BBC HTML 구조 변경 대비 fallback selector 적용
+- 실제 BBC 페이지 기반 smoke test로 파싱 가능 여부 검증
+- 파싱 실패 시 성공 처리하지 않고 진단 로그와 함께 실패 처리
 - Slack Webhook을 통해 메시지 전송
-- AWS Lambda 기반 서버리스 실행
-- GitHub Actions를 통한 CI/CD 자동 배포
+- GitHub Actions를 통한 스케줄 실행
 
 ---
+
 ## 🧩 기술스택
 
 #### Backend
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
 
 
 #### CI/CD
@@ -55,6 +57,7 @@ pipeline.run()
   ├─ config.get_slack_webhook_url()
   ├─ bbc_parse.get_latest_gossip_url()
   ├─ bbc_parse.parse_gossip_article(url)
+  ├─ bbc_parse.select_article_paragraphs(soup)
   ├─ bbc_parse.extract_gossip_items(soup)
   ├─ bbc_translate.preprocess_translate(items)
   ├─ bbc_translate.google_translator(refined_with_tokens, tails)
@@ -77,6 +80,9 @@ bbc_gossip_kr/
 ├─ requirements.txt
 ├─ Dockerfile
 ├─ readme.md
+├─ tests/
+│  ├─ test_bbc_parse.py
+│  └─ test_bbc_smoke.py
 └─ .github/
    └─ workflows/
       └─ bbc_gossip.yml
@@ -131,10 +137,44 @@ SLACK_WEBHOOK_URL=...
 DRY_RUN=1
 ```
 
+### DRY_RUN 실행
+Slack 실제 전송 없이 전체 수집/파싱/번역 흐름을 확인하려면 `DRY_RUN=1`로 실행합니다.
+
 ```bash
-# 실행
+DRY_RUN=1 python app.py
+```
+
+정상 실행 시 마지막에 아래와 비슷한 결과가 출력됩니다.
+
+```text
+{'statusCode': 200, 'body': 'Gossip N개'}
+```
+
+실제 Slack으로 전송하려면 `SLACK_WEBHOOK_URL`을 설정하고 `DRY_RUN`을 제거하거나 `DRY_RUN=0`으로 실행합니다.
+
+```bash
 python app.py
 ```
+
+### 테스트 실행
+샘플 HTML 기반 파서 테스트를 실행합니다.
+
+```bash
+python -m unittest tests.test_bbc_parse
+```
+
+실제 BBC 페이지를 가져와 현재 HTML 구조와 파서가 맞는지 smoke test를 실행합니다.
+
+```bash
+SMOKE_TEST=1 python -m unittest tests.test_bbc_smoke
+```
+
+일반 test discovery에서는 smoke test가 자동으로 skip됩니다.
+
+```bash
+python -m unittest discover -s tests
+```
+
 ## 🐳 Docker 환경 구축하기
 1) 이미지 빌드
 ```bash
@@ -151,10 +191,23 @@ docker run --rm --env-file .env bbc-gossip:latest
 
 - 번역 API 다중 호출로 인한 지연 문제를 단일 배치 번역 구조로 리팩터링
 - 가십 문장 끝의 출처 정보는 번역하지 않고 원문 유지하도록 토큰 기반 처리
+- BBC 기사 본문 selector를 단일 값이 아닌 fallback selector 목록으로 관리
+- 출처 없는 요약/캡션/저작권 문단은 가십 항목에서 제외
+- BBC 내부 팀 링크를 출처 링크로 오인하지 않도록 필터링
+- 최신 기사에서 가십 항목을 0개 추출하면 파싱 실패로 처리
+- 정상 실행 로그에 기사 URL, 제목, 발행일, 선택 selector, 문단 수, 추출 개수 출력
 - DRY_RUN 모드를 도입하여 로컬 테스트 시 Slack 실제 전송 방지
 - Github Action으로 특정 시간 코드 실행
 
 ## 🧯 트러블슈팅
+- BBC HTML 구조 변경으로 가십 문단을 0개 추출하는 문제
+  - 원인: 기존 selector `div[data-component='text-block'] p[class*='Paragraph']`가 현재 BBC 상세 페이지 구조와 맞지 않음
+  - 결과: 실제로는 파싱이 깨졌지만 `가십 없음`으로 정상 종료됨
+  - 해결: fallback selector 목록을 도입하고, 실제 BBC 페이지 smoke test와 파싱 진단 로그 추가
+- BBC 본문 특수문자 깨짐 문제
+  - 원인: 응답 charset이 명확하지 않아 `requests`가 `ISO-8859-1`로 오판
+  - 결과: `£`, `€`, `–` 같은 문자가 깨질 수 있음
+  - 해결: `apparent_encoding` 기반으로 응답 인코딩 보정
 - 이슈 마커가 오늘 실행된 것으로 잘못 인식되는 문제
   - 원인: `jq`에서 `env.DAY`를 사용했지만 해당 환경 변수가 설정되지 않아 `test("KST=")`로 동작
   - 결과: 과거 코멘트도 매칭되어 매일 이미 실행된 것으로 판단
@@ -164,6 +217,7 @@ docker run --rm --env-file .env bbc-gossip:latest
 ## 🔮 향후 개선 계획
 
 - ~~EventBridge 스케줄을 통한 정기 자동 실행~~
+- Ubuntu VM cron job 기반 실행으로 마이그레이션 검토
 - 번역 엔진 교체 또는 다중 번역기 fallback 구조
 - Slack 메시지 길이 제한 대응(자동 분할 전송)
 
