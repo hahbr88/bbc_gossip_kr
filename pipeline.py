@@ -59,13 +59,25 @@ def run() -> dict:
     article_soup = to_soup(article_html)
     title, published_date, soup = parse_gossip_article(article_soup)
     print("t(parse):", time.perf_counter() - t1)
+    print("article_url:", url)
+    print("article_title:", title)
+    print("article_published_date:", published_date)
 
     if not is_today_article(published_date):
         return {"statusCode": 200, "body": "오늘 기사 아님"}
 
     items = extract_gossip_items(soup)
+    diagnostics = get_parse_diagnostics(soup)
+    print(
+        "parse_summary:",
+        {
+            "selected_selector": diagnostics["selected_selector"],
+            "paragraph_count": diagnostics["paragraph_count"],
+            "item_count": len(items),
+            "selector_counts": diagnostics["selector_counts"],
+        },
+    )
     if not items:
-        diagnostics = get_parse_diagnostics(soup)
         print("parse_diagnostics:", diagnostics)
         raise ParseFailure(
             "금일 BBC 가십에서 발췌한 항목없음 "
