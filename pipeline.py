@@ -18,6 +18,10 @@ from bbc_translate import google_translator, preprocess_translate
 from config import GOSSIP_MAIN_URL, HEADERS, DRY_RUN, get_slack_webhook_url
 
 
+class ParseFailure(RuntimeError):
+    pass
+
+
 def send_slack_message(text: str, webhook_url: str) -> None:
     if DRY_RUN:
         print("[DRY_RUN] Slack 전송 생략. 미리보기(앞 500자):\n", text[:500])
@@ -61,8 +65,12 @@ def run() -> dict:
 
     items = extract_gossip_items(soup)
     if not items:
-        print("parse_diagnostics:", get_parse_diagnostics(soup))
-        return {"statusCode": 200, "body": "가십 없음"}
+        diagnostics = get_parse_diagnostics(soup)
+        print("parse_diagnostics:", diagnostics)
+        raise ParseFailure(
+            "금일 BBC 가십에서 발췌한 항목없음 "
+            f"title={title!r}, published_date={published_date!r}, diagnostics={diagnostics!r}"
+        )
     if len(items) < MIN_EXPECTED_GOSSIP_ITEMS:
         print(
             f"parse_warning: expected at least {MIN_EXPECTED_GOSSIP_ITEMS} gossip items, "
