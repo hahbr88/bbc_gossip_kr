@@ -5,8 +5,10 @@
 BBC Football Gossip 기사를 자동으로 수집하여  
 👉 **한국어로 번역 후 Slack으로 전송하는 봇**입니다.
 
-GitHub Actions 기반으로  
-**매일 KST 기준 스케줄/수동 실행**되도록 구성했습니다.
+Ubuntu VM cron 기반으로  
+**매일 KST 오전 10시에 실행**되도록 구성했습니다.
+
+GitHub Actions는 정기 스케줄을 비활성화하고, 필요할 때 수동 실행만 가능하도록 유지합니다.
 
 ---
 
@@ -21,23 +23,28 @@ GitHub Actions 기반으로
 - 실제 BBC 페이지 기반 smoke test로 파싱 가능 여부 검증
 - 파싱 실패 시 성공 처리하지 않고 진단 로그와 함께 실패 처리
 - Slack Webhook을 통해 메시지 전송
-- GitHub Actions를 통한 스케줄 실행
+- Ubuntu VM cron을 통한 매일 KST 10:00 스케줄 실행
+- GitHub Actions 수동 실행 지원
 
 ---
 
 ## 🧩 기술스택
 
 #### Backend
-![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
 
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 
 #### CI/CD
+
 ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
+![Cron](https://img.shields.io/badge/Cron-222222?style=for-the-badge&logo=linux&logoColor=white)
 
 ### Integration
+
 ![Slack Webhook](https://img.shields.io/badge/Slack%20Webhook-4A154B?style=for-the-badge&logo=slack&logoColor=white)
 
 ### Crawling & Translation
+
 ![BeautifulSoup](https://img.shields.io/badge/BeautifulSoup-59666C?style=for-the-badge&logo=python&logoColor=white)
 ![Requests](https://img.shields.io/badge/Requests-20232A?style=for-the-badge&logo=python&logoColor=white)
 ![deep-translator](https://img.shields.io/badge/deep--translator-0A0A0A?style=for-the-badge&logo=googletranslate&logoColor=white)
@@ -47,7 +54,7 @@ ___
 ## 🏗️ 아키텍처
 
 ```text
-GitHub Actions (cron / 수동 실행)
+Ubuntu VM cron (매일 10:00 KST)
         │
         ▼
 python app.py
@@ -66,9 +73,11 @@ pipeline.run()
         ▼
 Slack Incoming Webhook
 ```
+
 ---
 
 ## 📂 프로젝트 구조
+
 ```
 bbc_gossip_kr/
 ├─ app.py
@@ -88,21 +97,53 @@ bbc_gossip_kr/
       └─ bbc_gossip.yml
 
 ```
+
 ---
 
 ## 🚀 실행 환경
-- Python 3.12 (GitHub Actions)
-- GitHub Actions
+
+- Ubuntu VM
+- Python 3.10+ (VM), Python 3.12 (GitHub Actions 수동 실행)
+- cron
 - Slack Incoming Webhook
+
 ---
 
+## 🟢 Ubuntu VM cron 실행 방식
+
+- Ubuntu VM에서 매일 KST 오전 10시에 실행
+- `flock`으로 중복 실행 방지
+- 실행 로그는 `logs/cron.log`에 저장
+- VM 기준 권장 스펙: RAM 1GB, CPU 1 core, swap 유지
+
+현재 cron 설정 예시:
+
+```cron
+0 10 * * * cd /home/bbcbot/projects/bbc_gossip_kr && flock -n /tmp/bbc_gossip_kr.lock .venv/bin/python app.py >> logs/cron.log 2>&1
+```
+
+cron 등록 확인:
+
+```bash
+crontab -l
+```
+
+로그 확인:
+
+```bash
+tail -n 100 /home/bbcbot/projects/bbc_gossip_kr/logs/cron.log
+```
+
+> 로컬 PC 위에서 실행되는 VM의 경우, 호스트가 sleep 상태에 들어가면 cron도 실행되지 않습니다. 상시 운영하려면 VM이 실행 중이고 호스트도 깨어 있어야 합니다.
+
 ## 🟢 GitHub Actions 실행 방식
-- 매일 KST 기준으로 스케줄 실행
-- 동일 날짜(KST)에는 캐시/이슈 마커로 중복 실행 방지
+
+- 정기 schedule은 비활성화
+- `workflow_dispatch`를 통한 수동 실행만 지원
 - 수동 실행 시 `force_run=true`로 마커를 무시하고 강제 실행 가능
 
-
 ## 🟡 로컬환경 테스트
+
 ```bash
 # 가상환경 생성 및 활성화 (최초 1회)
 
@@ -114,10 +155,12 @@ source .venv/bin/activate
 python -m venv .venv
 .venv\Scripts\activate
 ```
+
 ```bash
 # 의존성 설치
 pip install -r requirements.txt
 ```
+
 ```bash
 # 환경변수 설정 (1회성)
 # macOS / Linux
@@ -131,6 +174,7 @@ setx DRY_RUN "1"
 # DRY_RUN 로컬 테스트 시 Slack 실제 전송 방지, 1이 아니거나 none이면 슬랙 전송됨
 
 ```
+
 ```md
 ※ 또는 프로젝트 루트에 `.env` 파일을 만들어 아래처럼 설정할 수 있습니다.
 SLACK_WEBHOOK_URL=...
@@ -138,6 +182,7 @@ DRY_RUN=1
 ```
 
 ### DRY_RUN 실행
+
 Slack 실제 전송 없이 전체 수집/파싱/번역 흐름을 확인하려면 `DRY_RUN=1`로 실행합니다.
 
 ```bash
@@ -157,6 +202,7 @@ python app.py
 ```
 
 ### 테스트 실행
+
 샘플 HTML 기반 파서 테스트를 실행합니다.
 
 ```bash
@@ -176,16 +222,18 @@ python -m unittest discover -s tests
 ```
 
 ## 🐳 Docker 환경 구축하기
+
 1) 이미지 빌드
+
 ```bash
 docker build -t bbc-gossip:latest .
 ```
+
 2) 실행 (env 파일 사용)
+
 ```bash
 docker run --rm --env-file .env bbc-gossip:latest
 ```
-
-
 
 ## 🛠️ 문제 해결 & 설계 포인트
 
@@ -197,9 +245,14 @@ docker run --rm --env-file .env bbc-gossip:latest
 - 최신 기사에서 가십 항목을 0개 추출하면 파싱 실패로 처리
 - 정상 실행 로그에 기사 URL, 제목, 발행일, 선택 selector, 문단 수, 추출 개수 출력
 - DRY_RUN 모드를 도입하여 로컬 테스트 시 Slack 실제 전송 방지
-- Github Action으로 특정 시간 코드 실행
+- Ubuntu VM cron으로 매일 KST 10:00 실행
+- GitHub Actions는 수동 실행 용도로 유지
 
 ## 🧯 트러블슈팅
+
+- GitHub Actions와 VM cron 중복 발송 문제
+  - 원인: GitHub Actions schedule과 VM cron이 동시에 활성화되면 같은 날 Slack 메시지가 중복 발송될 수 있음
+  - 해결: VM cron 마이그레이션 후 GitHub Actions schedule 제거, 수동 실행만 유지
 - BBC HTML 구조 변경으로 가십 문단을 0개 추출하는 문제
   - 원인: 기존 selector `div[data-component='text-block'] p[class*='Paragraph']`가 현재 BBC 상세 페이지 구조와 맞지 않음
   - 결과: 실제로는 파싱이 깨졌지만 `가십 없음`으로 정상 종료됨
@@ -213,15 +266,15 @@ docker run --rm --env-file .env bbc-gossip:latest
   - 결과: 과거 코멘트도 매칭되어 매일 이미 실행된 것으로 판단
   - 해결: 쉘 변수 `DAY`를 문자열에 직접 삽입해 `test("KST=YYYY-MM-DD")`로 정확히 매칭
 
-
 ## 🔮 향후 개선 계획
 
 - ~~EventBridge 스케줄을 통한 정기 자동 실행~~
-- Ubuntu VM cron job 기반 실행으로 마이그레이션 검토
+- ~~Ubuntu VM cron job 기반 실행으로 마이그레이션~~
 - 번역 엔진 교체 또는 다중 번역기 fallback 구조
 - Slack 메시지 길이 제한 대응(자동 분할 전송)
 
 ## 📚 과거 구성 (히스토리)
+
 - AWS Lambda + GitHub Actions 기반 자동 배포 파이프라인
   - GitHub Actions 배포 흐름
     1. main 브랜치에 push
@@ -234,6 +287,6 @@ docker run --rm --env-file .env bbc-gossip:latest
 
 - ![AWS Lambda](https://img.shields.io/badge/AWS%20Lambda-FF9900?style=for-the-badge&logo=awslambda&logoColor=white) ![AWS IAM](https://img.shields.io/badge/AWS%20IAM-232F3E?style=for-the-badge&logo=amazonaws&logoColor=white)
 
-
 ## 📄 License
+
 This project is for educational and personal use only.
